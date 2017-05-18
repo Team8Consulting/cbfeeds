@@ -13,9 +13,8 @@ setup(
     author_email='dev-support@carbonblack.com',
     description='Carbon Black Alliance Feeds',
     long_description=__doc__,
-    packages=['cbfeeds', ],
+    packages=['cbfeeds'],
     include_package_data=True,
-    #package_dir = {'': 'src'},
     zip_safe=False,
     platforms='any',
     classifiers=[

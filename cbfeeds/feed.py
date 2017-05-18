@@ -4,14 +4,15 @@ import base64
 import re
 import time
 
-from cbfeeds import CbInvalidReport
-from cbfeeds import CbIconError
-from cbfeeds import CbInvalidFeed
+import six
+
+from .exceptions import CbInvalidReport, CbIconError, CbInvalidFeed
 
 
 class CbJSONEncoder(json.JSONEncoder):
     def default(self, o):
         return o.dump()
+
 
 class CbFeed(object):
     def __init__(self, feedinfo, reports):
@@ -60,10 +61,10 @@ class CbFeed(object):
         # see CBAPI-17
         for report in reports:
             if report['id'] in reportids:
-                raise CbInvalidFeed("duplicate report id '%s'" % report['id']) 
+                raise CbInvalidFeed("duplicate report id '%s'" % report['id'])
             reportids.add(report['id'])
 
-    def validate(self, pedantic = False, serialized_data=None):
+    def validate(self, pedantic=False, serialized_data=None):
         '''
         validates the feed
         :param pedantic: when set, perform strict validation
@@ -83,15 +84,16 @@ class CbFeed(object):
 
         # validate the feed info
         fi = CbFeedInfo(**data["feedinfo"])
-        fi.validate(pedantic = pedantic)
+        fi.validate(pedantic=pedantic)
 
         # validate each report individually
         for rep in data["reports"]:
             report = CbReport(**rep)
-            report.validate(pedantic = pedantic)
+            report.validate(pedantic=pedantic)
 
         # validate the reports as a whole
         self.validate_report_list(data["reports"])
+
 
 class CbFeedInfo(object):
     def __init__(self, **kwargs):
@@ -108,8 +110,9 @@ class CbFeedInfo(object):
             if icon_field in self.data and os.path.exists(self.data[icon_field]):
                 icon_path = self.data.pop(icon_field)
                 try:
-                    self.data[icon_field] = base64.b64encode(open(icon_path, "rb").read())
-                except Exception, err:
+                    # CB expects base64 string to be text
+                    self.data[icon_field] = base64.b64encode(open(icon_path, "rb").read()).decode('utf-8')
+                except Exception as err:
                     raise CbIconError("Unknown error reading/encoding icon data: %s" % err)
 
     def dump(self):
@@ -120,7 +123,7 @@ class CbFeedInfo(object):
         self.validate()
         return self.data
 
-    def validate(self, pedantic = False):
+    def validate(self, pedantic=False):
         """ a set of checks to validate data before we export the feed"""
 
         if not all([x in self.data.keys() for x in self.required]):
@@ -136,7 +139,7 @@ class CbFeedInfo(object):
         for icon_field in ["icon", "icon_small"]:
             try:
                 base64.b64decode(self.data[icon_field])
-            except TypeError, err:
+            except TypeError as err:
                 raise CbIconError("Icon must either be path or base64 data.  \
                                         Path does not exist and base64 decode failed with: %s" % err)
             except KeyError as err:
@@ -145,7 +148,7 @@ class CbFeedInfo(object):
 
         # all fields in feedinfo must be strings
         for key in self.data.keys():
-            if not (isinstance(self.data[key], unicode) or isinstance(self.data[key], str)):
+            if not (isinstance(self.data[key], six.text_type) or isinstance(self.data[key], str)):
                 raise CbInvalidFeed("FeedInfo field %s must be of type %s, the field \
                                     %s is of type %s " % (key, "unicode", key, type(self.data[key])))
 
@@ -158,7 +161,7 @@ class CbFeedInfo(object):
         if not self.data["name"].isalnum():
             raise CbInvalidFeed(
                 "Feed name %s may only contain a-z, A-Z, 0-9 and must have one character" % self.data["name"])
-        
+
         return True
 
     def __str__(self):
@@ -211,9 +214,11 @@ class CbReport(object):
         # no logic to detect unescaped '%' characters
         for c in q:
             if c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.~%*()":
-                raise CbInvalidReport("Unescaped non-reserved character '%s' found in query for report %s; use percent-encoding" % (c, reportid))
- 
-    def validate(self, pedantic = False):
+                raise CbInvalidReport(
+                    "Unescaped non-reserved character '%s' found in query for report %s; use percent-encoding" % (
+                        c, reportid))
+
+    def validate(self, pedantic=False):
         """ a set of checks to validate the report"""
 
         # validate we have all required keys
@@ -236,7 +241,7 @@ class CbReport(object):
         # verify that all fields that should be strings are strings
         for key in self.typestring:
             if key in self.data.keys():
-                if not isinstance(self.data[key], basestring):
+                if not isinstance(self.data[key], six.text_type):
                     raise CbInvalidReport("Report field '%s' must be a string" % key)
 
         # verify that all fields that should be ints are ints
@@ -253,9 +258,9 @@ class CbReport(object):
                 if not str(tag).isalnum():
                     raise CbInvalidReport("Tag '%s' is not alphanumeric" % tag)
                 if len(tag) > 32:
-                    raise CbInvalidReport("Tags must be 32 characters or fewer") 
-        
-        # validate score is integer between -100 (if so specified) or 0 and 100
+                    raise CbInvalidReport("Tags must be 32 characters or fewer")
+
+                    # validate score is integer between -100 (if so specified) or 0 and 100
         try:
             int(self.data["score"])
         except ValueError:
@@ -297,14 +302,14 @@ class CbReport(object):
             raise CbInvalidReport(
                 "Report IOCs section for \"query\" contains extra keys: %s for report %s" %
                 (set(iocs.keys()), self.data["id"]))
-        
+
         if query_ioc:
             iocs_query = iocs["query"][0]
-           
+
             # validate that the index_type field exists 
             if "index_type" not in iocs_query.keys():
                 raise CbInvalidReport("Query IOC section for report %s missing index_type" % self.data["id"])
-            
+
             # validate that the index_type is a valid value
             if not iocs_query.get("index_type", None) in self.valid_query_ioc_types:
                 raise CbInvalidReport(
@@ -323,10 +328,10 @@ class CbReport(object):
                 raise CbInvalidReport("Query IOC for report %s missing q= on query" % self.data["id"])
 
             for kvpair in iocs_query["search_query"].split('&'):
-              if 2 != len(kvpair.split('=')):
-                  continue
-              if kvpair.split('=')[0] == 'q':
-                  self.is_valid_query(kvpair.split('=')[1], self.data["id"])
+                if 2 != len(kvpair.split('=')):
+                    continue
+                if kvpair.split('=')[0] == 'q':
+                    self.is_valid_query(kvpair.split('=')[1], self.data["id"])
 
         # validate all md5 fields are 32 characters, just alphanumeric, and 
         # do not include [g-z] and [G-Z] meet the alphanumeric criteria but are not valid in a md5
@@ -372,7 +377,7 @@ class CbReport(object):
         return True
 
     def __str__(self):
-        return "CbReport(%s)" % (self.data.get("title", self.data.get("id", '')) )
+        return "CbReport(%s)" % (self.data.get("title", self.data.get("id", '')))
 
     def __repr__(self):
         return repr(self.data)
